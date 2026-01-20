@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
-import { Upload, FileText, Video, Play, Loader2, AlertCircle, Clock, FileType, CheckCircle, Image as ImageIcon } from 'lucide-react';
+import { Upload, FileText, Video, Play, Loader2, AlertCircle, Clock, FileType, CheckCircle, Image as ImageIcon, Sparkles, ArrowRight } from 'lucide-react';
 import * as pdfjsLibModule from 'pdfjs-dist';
 
 // Handle ESM/CJS interop for pdfjs-dist
@@ -80,9 +80,7 @@ const App = () => {
         const duration = video.duration;
         
         // --- 核心修改：高密度採樣設定 ---
-        // 1. 將目標張數提升至 800，以捕捉更細微的變化
         const targetFrameCount = 800;
-        // 2. 強制最小間隔為 2 秒 (原本是 5 秒)
         const interval = Math.max(2, Math.floor(duration / targetFrameCount));
         
         setProgressStatus(`正在處理影片... (影片長度: ${Math.floor(duration)}秒, 取樣間隔: ${interval}秒, 預計張數: ${Math.ceil(duration/interval)})`);
@@ -100,7 +98,6 @@ const App = () => {
         const processFrame = async () => {
           if (currentTime >= duration) {
             URL.revokeObjectURL(video.src);
-            // FIXED: Return object instead of array
             resolve({ parts, interval });
             return;
           }
@@ -110,14 +107,12 @@ const App = () => {
 
         video.onseeked = () => {
           // --- 核心修改：極限壓縮設定 ---
-          // 1. 將最大邊長限制在 256px (足夠辨識大標題)
           const scale = Math.min(1, 256 / Math.max(video.videoWidth, video.videoHeight));
           canvas.width = video.videoWidth * scale;
           canvas.height = video.videoHeight * scale;
           
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           
-          // 2. 將 JPEG 品質壓到 0.3 (30%) 以節省大量 Token
           const base64Url = canvas.toDataURL('image/jpeg', 0.3);
           const base64Data = base64Url.split(',')[1];
 
@@ -248,7 +243,6 @@ const App = () => {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       let contentParts: any[] = [];
       
-      // FIXED: Variable to store sampling interval for correction
       let samplingInterval = 0; 
 
       // --- 1. Process Video ---
@@ -256,7 +250,6 @@ const App = () => {
       if (isLargeVideo) {
         console.log("Large video detected, switching to frame sampling...");
         try {
-          // FIXED: Destructure the object returned by extractFrames
           const { parts, interval } = await extractFrames(videoFile);
           contentParts = [...contentParts, ...parts];
           samplingInterval = interval; 
@@ -356,9 +349,7 @@ const App = () => {
           console.log(`應用中間值校正: 自動扣除 ${samplingInterval / 2} 秒 (採樣間隔: ${samplingInterval}秒)`);
           
           data = data.map(event => {
-            // 自動修正：時間點往前推移半個 Interval
             const correctedSeconds = Math.max(0, event.seconds - (samplingInterval / 2));
-            
             const mins = Math.floor(correctedSeconds / 60);
             const secs = Math.floor(correctedSeconds % 60);
             const correctedTimestamp = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -402,23 +393,30 @@ const App = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-200 p-6 font-sans">
-      <div className="max-w-5xl mx-auto space-y-8">
+    <div className="min-h-screen bg-gray-50 text-gray-800 font-sans selection:bg-teal-100 selection:text-teal-900 pb-20">
+      <div className="max-w-4xl mx-auto px-6 pt-16 space-y-12">
         
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-            影片與簡報同步助手 (High Precision)
+        {/* Header - Clean & Minimal */}
+        <div className="text-center space-y-4">
+          <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-white shadow-sm mb-4">
+            <Sparkles className="w-6 h-6 text-teal-400" />
+          </div>
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-gray-900">
+            Slide Sync <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-purple-400">AI</span>
           </h1>
-          <p className="text-slate-400">
-            上傳演講影片與 PDF 講義，AI 將自動為您找出對應的切換時間點。
+          <p className="text-gray-500 text-lg max-w-lg mx-auto leading-relaxed">
+            上傳演講影片與 PDF 講義，體驗極致流暢的智能同步。
           </p>
         </div>
 
-        {/* Input Section */}
+        {/* Input Section - Card Based */}
         <div className="grid md:grid-cols-2 gap-6">
           {/* Video Uploader */}
-          <div className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center transition-colors ${videoFile ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 hover:border-slate-500'}`}>
+          <div className={`
+            group relative overflow-hidden rounded-3xl transition-all duration-300
+            bg-white border-2 
+            ${videoFile ? 'border-teal-400 shadow-lg shadow-teal-100/50' : 'border-dashed border-gray-200 hover:border-teal-200 hover:shadow-lg hover:shadow-gray-100'}
+          `}>
             <input 
               type="file" 
               accept="video/*" 
@@ -426,21 +424,29 @@ const App = () => {
               className="hidden" 
               id="video-upload"
             />
-            <label htmlFor="video-upload" className="cursor-pointer flex flex-col items-center space-y-4 w-full">
-              <div className="p-4 bg-slate-800 rounded-full">
-                <Video className="w-8 h-8 text-blue-400" />
+            <label htmlFor="video-upload" className="cursor-pointer flex flex-col items-center justify-center p-10 h-full w-full relative z-10">
+              <div className={`
+                p-4 rounded-2xl mb-4 transition-colors duration-300
+                ${videoFile ? 'bg-teal-50 text-teal-500' : 'bg-gray-50 text-gray-400 group-hover:bg-teal-50 group-hover:text-teal-400'}
+              `}>
+                <Video className="w-8 h-8" />
               </div>
-              <div className="text-center">
-                <span className="block text-lg font-medium text-white">
+              <div className="text-center space-y-1">
+                <span className={`block font-semibold text-lg transition-colors ${videoFile ? 'text-teal-600' : 'text-gray-700'}`}>
                   {videoFile ? videoFile.name : "選擇影片"}
                 </span>
-                <span className="text-sm text-slate-500">支援 MP4, MOV, WEBM (大檔案將自動取樣)</span>
+                <span className="block text-sm text-gray-400">支援 MP4, MOV, WEBM</span>
               </div>
             </label>
+            {videoFile && <div className="absolute inset-0 bg-teal-50/20 pointer-events-none" />}
           </div>
 
           {/* PDF Uploader */}
-          <div className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center transition-colors ${pdfFile ? 'border-red-500 bg-red-500/10' : 'border-slate-700 hover:border-slate-500'}`}>
+          <div className={`
+            group relative overflow-hidden rounded-3xl transition-all duration-300
+            bg-white border-2 
+            ${pdfFile ? 'border-purple-400 shadow-lg shadow-purple-100/50' : 'border-dashed border-gray-200 hover:border-purple-200 hover:shadow-lg hover:shadow-gray-100'}
+          `}>
             <input 
               type="file" 
               accept="application/pdf" 
@@ -448,119 +454,131 @@ const App = () => {
               className="hidden" 
               id="pdf-upload"
             />
-            <label htmlFor="pdf-upload" className="cursor-pointer flex flex-col items-center space-y-4 w-full">
-              <div className="p-4 bg-slate-800 rounded-full">
-                <FileText className="w-8 h-8 text-red-400" />
+            <label htmlFor="pdf-upload" className="cursor-pointer flex flex-col items-center justify-center p-10 h-full w-full relative z-10">
+              <div className={`
+                p-4 rounded-2xl mb-4 transition-colors duration-300
+                ${pdfFile ? 'bg-purple-50 text-purple-500' : 'bg-gray-50 text-gray-400 group-hover:bg-purple-50 group-hover:text-purple-400'}
+              `}>
+                <FileText className="w-8 h-8" />
               </div>
-              <div className="text-center">
-                <span className="block text-lg font-medium text-white">
-                  {pdfFile ? pdfFile.name : "選擇 PDF 簡報"}
+              <div className="text-center space-y-1">
+                <span className={`block font-semibold text-lg transition-colors ${pdfFile ? 'text-purple-600' : 'text-gray-700'}`}>
+                  {pdfFile ? pdfFile.name : "選擇簡報"}
                 </span>
-                <span className="text-sm text-slate-500">簡報講義 (大檔案將自動轉圖)</span>
+                <span className="block text-sm text-gray-400">PDF 格式講義</span>
               </div>
             </label>
+            {pdfFile && <div className="absolute inset-0 bg-purple-50/20 pointer-events-none" />}
           </div>
         </div>
 
-        {/* Error Message */}
+        {/* Error Message - Soft Alert */}
         {error && (
-          <div className="bg-red-500/10 border border-red-500/50 text-red-200 p-4 rounded-lg flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-            <AlertCircle className="w-5 h-5 flex-shrink-0" />
-            <p>{error}</p>
+          <div className="bg-red-50 border border-red-100 text-red-600 px-6 py-4 rounded-2xl flex items-center gap-4 shadow-sm animate-in fade-in slide-in-from-top-2">
+            <div className="p-2 bg-red-100 rounded-full">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <p className="font-medium">{error}</p>
           </div>
         )}
 
-        {/* Action Area */}
-        <div className="flex flex-col items-center space-y-6">
+        {/* Action Area - Minimalist Button */}
+        <div className="flex flex-col items-center space-y-8">
           <button
             onClick={handleAnalyze}
             disabled={isAnalyzing || !videoFile || !pdfFile}
             className={`
-              flex items-center space-x-2 px-8 py-3 rounded-full text-lg font-semibold shadow-lg transition-all
+              group relative overflow-hidden px-10 py-4 rounded-2xl text-lg font-bold tracking-wide transition-all duration-300
               ${isAnalyzing || !videoFile || !pdfFile 
-                ? 'bg-slate-700 text-slate-500 cursor-not-allowed' 
-                : 'bg-blue-600 hover:bg-blue-500 text-white hover:scale-105 active:scale-95'}
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                : 'bg-gradient-to-r from-teal-400 to-purple-400 text-white shadow-lg shadow-purple-200 hover:shadow-xl hover:scale-[1.02] hover:-translate-y-0.5'}
             `}
           >
-            {isAnalyzing ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span>分析中...</span>
-              </>
-            ) : (
-              <>
-                <Play className="w-5 h-5 fill-current" />
-                <span>開始分析對齊</span>
-              </>
-            )}
+            <div className="relative z-10 flex items-center space-x-3">
+              {isAnalyzing ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>智能分析中...</span>
+                </>
+              ) : (
+                <>
+                  <span>開始同步分析</span>
+                  <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </>
+              )}
+            </div>
           </button>
           
           {isAnalyzing && (
-            <div className="text-center space-y-2">
-              <p className="text-blue-400 font-medium animate-pulse">
+            <div className="text-center space-y-3 w-full max-w-md">
+              <p className="text-transparent bg-clip-text bg-gradient-to-r from-teal-500 to-purple-500 font-semibold animate-pulse">
                 {progressStatus || "正在處理..."}
               </p>
-              <p className="text-xs text-slate-500 max-w-md mx-auto">
-                採樣密度：極高 (600張) | 圖片品質：壓縮 (10%) | 自動校正：開啟
+              <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-teal-400 to-purple-400 animate-progress origin-left w-full" style={{animationDuration: '3s'}}></div>
+              </div>
+              <p className="text-xs text-gray-400">
+                高精度模式啟動 • 自動時間校正 • 智能影像壓縮
               </p>
             </div>
           )}
         </div>
 
-        {/* Video Preview */}
+        {/* Video Preview - Floating Card */}
         {videoUrl && (
-          <div className="bg-black rounded-xl overflow-hidden shadow-2xl ring-1 ring-slate-700">
+          <div className="bg-white p-2 rounded-3xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.1)] border border-gray-100 overflow-hidden">
             <video 
               ref={videoRef}
               src={videoUrl} 
               controls 
-              className="w-full max-h-[500px] object-contain mx-auto"
+              className="w-full max-h-[500px] object-contain rounded-2xl bg-black"
             />
           </div>
         )}
 
-        {/* Results Table */}
+        {/* Results Table - Clean & Airy */}
         {results && results.length > 0 && (
-          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <div className="flex items-center space-x-2">
-              <CheckCircle className="w-6 h-6 text-green-400" />
-              <h2 className="text-2xl font-bold text-white">分析結果</h2>
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-700">
+            <div className="flex items-center space-x-3 px-2">
+              <div className="p-2 bg-teal-50 rounded-full">
+                <CheckCircle className="w-6 h-6 text-teal-500" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-800">分析完成</h2>
             </div>
             
-            <div className="bg-slate-800 rounded-xl overflow-hidden shadow-xl ring-1 ring-slate-700">
+            <div className="bg-white rounded-3xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-700/50 text-slate-300 text-sm uppercase tracking-wider">
-                      <th className="p-4 font-semibold w-32">時間點</th>
-                      <th className="p-4 font-semibold w-32">PDF 頁碼</th>
-                      <th className="p-4 font-semibold">投影片標題 / 內容</th>
-                      <th className="p-4 font-semibold hidden md:table-cell">判斷依據</th>
+                    <tr className="bg-gray-50/50 text-gray-500 text-xs font-bold uppercase tracking-widest border-b border-gray-100">
+                      <th className="p-6 w-32">時間軸</th>
+                      <th className="p-6 w-28 text-center">頁碼</th>
+                      <th className="p-6">內容摘要</th>
+                      <th className="p-6 hidden md:table-cell w-1/3">AI 判斷依據</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-700">
+                  <tbody className="divide-y divide-gray-50">
                     {results.map((event, idx) => (
-                      <tr key={idx} className="hover:bg-slate-700/30 transition-colors group">
-                        <td className="p-4">
+                      <tr key={idx} className="hover:bg-teal-50/30 transition-colors duration-200 group">
+                        <td className="p-6">
                           <button 
                             onClick={() => jumpToTime(event.seconds)}
-                            className="flex items-center space-x-2 text-blue-400 hover:text-blue-300 bg-blue-400/10 hover:bg-blue-400/20 px-3 py-1 rounded-full transition-all"
+                            className="flex items-center space-x-2 text-teal-600 bg-teal-50 hover:bg-teal-100 hover:text-teal-700 px-4 py-2 rounded-xl transition-all duration-200 font-mono text-sm font-bold shadow-sm"
                           >
                             <Play className="w-3 h-3 fill-current" />
-                            <span className="font-mono font-bold">{event.timestamp}</span>
+                            <span>{event.timestamp}</span>
                           </button>
                         </td>
-                        <td className="p-4">
-                          <div className="flex items-center space-x-2 text-white">
-                            <FileType className="w-4 h-4 text-slate-400" />
-                            <span className="font-bold text-lg">{event.pdfPageNumber}</span>
+                        <td className="p-6 text-center">
+                          <div className="inline-flex flex-col items-center justify-center w-12 h-12 rounded-2xl bg-purple-50 text-purple-600 border border-purple-100">
+                            <span className="text-lg font-bold leading-none">{event.pdfPageNumber}</span>
                           </div>
                         </td>
-                        <td className="p-4">
-                          <p className="font-medium text-white">{event.slideTitle}</p>
+                        <td className="p-6">
+                          <p className="font-bold text-gray-800 text-lg group-hover:text-teal-700 transition-colors">{event.slideTitle}</p>
                         </td>
-                        <td className="p-4 hidden md:table-cell">
-                          <p className="text-sm text-slate-400">{event.reasoning}</p>
+                        <td className="p-6 hidden md:table-cell">
+                          <p className="text-sm text-gray-500 leading-relaxed">{event.reasoning}</p>
                         </td>
                       </tr>
                     ))}
