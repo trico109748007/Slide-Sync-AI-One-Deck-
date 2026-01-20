@@ -78,10 +78,10 @@ const App = () => {
       video.onloadedmetadata = async () => {
         const duration = video.duration;
         
-        // CHANGED: Cap total frames to ~300 to avoid token limits (1M limit).
-        // Dynamic interval: minimum 5s, but increases for long videos.
-        const targetFrameCount = 300;
-        const interval = Math.max(5, Math.floor(duration / targetFrameCount));
+        // CHANGED: Cap total frames to ~600 for high density sampling.
+        // Dynamic interval: minimum 2s to catch quick transitions.
+        const targetFrameCount = 600;
+        const interval = Math.max(2, Math.floor(duration / targetFrameCount));
         
         setProgressStatus(`正在處理影片... (影片長度: ${Math.floor(duration)}秒, 取樣間隔: ${interval}秒, 預計張數: ${Math.ceil(duration/interval)})`);
 
@@ -106,15 +106,15 @@ const App = () => {
         };
 
         video.onseeked = () => {
-          // CHANGED: Reduced max dimension from 512 to 384 to save tokens.
-          const scale = Math.min(1, 384 / Math.max(video.videoWidth, video.videoHeight));
+          // CHANGED: Reduced max dimension from 384 to 256 to save tokens given the higher frame count.
+          const scale = Math.min(1, 256 / Math.max(video.videoWidth, video.videoHeight));
           canvas.width = video.videoWidth * scale;
           canvas.height = video.videoHeight * scale;
           
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           
-          // CHANGED: Reduced JPEG quality from 0.6 to 0.5.
-          const base64Url = canvas.toDataURL('image/jpeg', 0.5);
+          // CHANGED: Reduced JPEG quality from 0.5 to 0.1 for maximum compression.
+          const base64Url = canvas.toDataURL('image/jpeg', 0.1);
           const base64Data = base64Url.split(',')[1];
 
           const mins = Math.floor(currentTime / 60);
