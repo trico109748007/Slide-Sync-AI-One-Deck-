@@ -77,11 +77,13 @@ const App = () => {
       
       video.onloadedmetadata = async () => {
         const duration = video.duration;
-        // Aim for roughly 60-100 frames total
-        const targetFrameCount = 80;
-        const interval = Math.max(2, Math.floor(duration / targetFrameCount));
         
-        setProgressStatus(`正在處理影片... (影片長度: ${Math.floor(duration)}秒, 取樣間隔: ${interval}秒)`);
+        // CHANGED: Cap total frames to ~300 to avoid token limits (1M limit).
+        // Dynamic interval: minimum 5s, but increases for long videos.
+        const targetFrameCount = 300;
+        const interval = Math.max(5, Math.floor(duration / targetFrameCount));
+        
+        setProgressStatus(`正在處理影片... (影片長度: ${Math.floor(duration)}秒, 取樣間隔: ${interval}秒, 預計張數: ${Math.ceil(duration/interval)})`);
 
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
@@ -104,13 +106,15 @@ const App = () => {
         };
 
         video.onseeked = () => {
-          const scale = Math.min(1, 512 / Math.max(video.videoWidth, video.videoHeight));
+          // CHANGED: Reduced max dimension from 512 to 384 to save tokens.
+          const scale = Math.min(1, 384 / Math.max(video.videoWidth, video.videoHeight));
           canvas.width = video.videoWidth * scale;
           canvas.height = video.videoHeight * scale;
           
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           
-          const base64Url = canvas.toDataURL('image/jpeg', 0.6);
+          // CHANGED: Reduced JPEG quality from 0.6 to 0.5.
+          const base64Url = canvas.toDataURL('image/jpeg', 0.5);
           const base64Data = base64Url.split(',')[1];
 
           const mins = Math.floor(currentTime / 60);
@@ -352,7 +356,7 @@ const App = () => {
       if (msg.includes('413') || msg.includes('too large')) {
          setError("檔案總量過大。請嘗試減少影片長度或壓縮 PDF。");
       } else if (msg.includes('400')) {
-         setError("請求失敗 (400)。請檢查檔案格式。");
+         setError("請求失敗 (400)。請檢查檔案格式或減少檔案大小。");
       } else {
         setError(msg || "分析過程中發生未預期的錯誤。");
       }
