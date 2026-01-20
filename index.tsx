@@ -80,8 +80,8 @@ const App = () => {
         const duration = video.duration;
         
         // --- 核心修改：高密度採樣設定 ---
-        // 1. 將目標張數提升至 600，以捕捉更細微的變化
-        const targetFrameCount = 600;
+        // 1. 將目標張數提升至 800，以捕捉更細微的變化
+        const targetFrameCount = 800;
         // 2. 強制最小間隔為 2 秒 (原本是 5 秒)
         const interval = Math.max(2, Math.floor(duration / targetFrameCount));
         
@@ -117,8 +117,8 @@ const App = () => {
           
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           
-          // 2. 將 JPEG 品質壓到 0.1 (10%) 以節省大量 Token
-          const base64Url = canvas.toDataURL('image/jpeg', 0.1);
+          // 2. 將 JPEG 品質壓到 0.3 (30%) 以節省大量 Token
+          const base64Url = canvas.toDataURL('image/jpeg', 0.3);
           const base64Data = base64Url.split(',')[1];
 
           const mins = Math.floor(currentTime / 60);
@@ -298,21 +298,25 @@ const App = () => {
 
       // --- 3. Prompt ---
       const promptText = `
-        你是一個專家，擅長將演講影片與簡報投影片同步。
+      你是一個專家，擅長將演講影片與簡報投影片同步。
         
         輸入包含：
-        1. 演講影片（或者是影片的一系列截圖影格）。
-        2. 該演講使用的 PDF 簡報（或是簡報的每一頁圖片，標記為 PDF_PAGE_NUMBER_x）。
+        1. 演講影片（由一系列帶有時間戳記 [VIDEO_FRAME_TIMESTAMP] 的截圖組成）。
+        2. 該演講使用的 PDF 簡報（簡報的每一頁圖片，標記為 PDF_PAGE_NUMBER_x）。
 
         任務：
-        請仔細比對影片畫面與 PDF 內容，找出影片中每一次切換投影片的時間點。
-        針對每一次切換，判斷畫面上顯示的是 PDF 中的哪一頁。
+        請仔細比對影片畫面與 PDF 內容，找出影片中每一次「投影片切換」的精確時間點。
         
+        重要判斷原則：
+        1. **忽略開場與閒聊**：影片開頭可能包含講者介紹、等待畫面或講者特寫。請務必等到**投影片內容清晰出現在畫面上**，且與 PDF 內容相符時，才標記第一張的時間。**不要強行從 00:00 開始**。
+        2. **精確對應**：請依據截圖中的 [VIDEO_FRAME_TIMESTAMP] 時間標籤來決定時間。
+        3. **忽略講者切換**：如果畫面只是從投影片切換回講者（而投影片沒變），請忽略該次變化。
+
         輸出規則：
         1. 輸出一個 JSON 事件列表。每個事件代表一個投影片展示的片段。
         2. 包含時間戳記 (MM:SS)、對應的 PDF 頁碼 (整數)、投影片標題(或主要內容摘要)，以及你判斷匹配的理由。
         3. 理由請使用繁體中文撰寫，解釋為何該畫面與該頁匹配（例如：標題相同、圖表一致）。
-        4. 確保列表按照時間順序排列。        
+        4. 確保列表按照時間順序排列。 
       `;
 
       contentParts.push({ text: promptText });
@@ -320,7 +324,7 @@ const App = () => {
       setProgressStatus("AI 正在分析與同步 (這可能需要一點時間)...");
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-2.5-pro',
         contents: {
           parts: contentParts
         },
