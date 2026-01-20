@@ -65,7 +65,8 @@ const App = () => {
   };
 
   // Frame extraction for large videos
-  const extractFrames = async (file: File): Promise<any[]> => {
+  // FIXED: Return type includes 'interval' for midpoint correction
+  const extractFrames = async (file: File): Promise<{ parts: any[], interval: number }> => {
     return new Promise((resolve, reject) => {
       const video = document.createElement('video');
       video.preload = 'metadata';
@@ -78,9 +79,10 @@ const App = () => {
       video.onloadedmetadata = async () => {
         const duration = video.duration;
         
-        // CHANGED: Cap total frames to ~600 for high density sampling.
-        // Dynamic interval: minimum 2s to catch quick transitions.
+        // --- 核心修改：高密度採樣設定 ---
+        // 1. 將目標張數提升至 600，以捕捉更細微的變化
         const targetFrameCount = 600;
+        // 2. 強制最小間隔為 2 秒 (原本是 5 秒)
         const interval = Math.max(2, Math.floor(duration / targetFrameCount));
         
         setProgressStatus(`正在處理影片... (影片長度: ${Math.floor(duration)}秒, 取樣間隔: ${interval}秒, 預計張數: ${Math.ceil(duration/interval)})`);
@@ -98,7 +100,8 @@ const App = () => {
         const processFrame = async () => {
           if (currentTime >= duration) {
             URL.revokeObjectURL(video.src);
-            resolve(parts);
+            // FIXED: Return object instead of array
+            resolve({ parts, interval });
             return;
           }
 
@@ -106,14 +109,15 @@ const App = () => {
         };
 
         video.onseeked = () => {
-          // CHANGED: Reduced max dimension from 384 to 256 to save tokens given the higher frame count.
+          // --- 核心修改：極限壓縮設定 ---
+          // 1. 將最大邊長限制在 256px (足夠辨識大標題)
           const scale = Math.min(1, 256 / Math.max(video.videoWidth, video.videoHeight));
           canvas.width = video.videoWidth * scale;
           canvas.height = video.videoHeight * scale;
           
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           
-          // CHANGED: Reduced JPEG quality from 0.5 to 0.1 for maximum compression.
+          // 2. 將 JPEG 品質壓到 0.1 (10%) 以節省大量 Token
           const base64Url = canvas.toDataURL('image/jpeg', 0.1);
           const base64Data = base64Url.split(',')[1];
 
@@ -163,10 +167,7 @@ const App = () => {
         for (let i = 1; i <= numPages; i++) {
           const page = await pdf.getPage(i);
           
-          // Render at a reasonable scale to ensure text is readable but size is managed
           const viewport = page.getViewport({ scale: 1.5 });
-          
-          // Downscale if it's too huge (max width 1024)
           const scale = Math.min(1, 1024 / viewport.width);
           const scaledViewport = page.getViewport({ scale: 1.5 * scale });
 
@@ -182,7 +183,6 @@ const App = () => {
             };
             await page.render(renderContext).promise;
             
-            // Use JPEG with 0.6 quality for good compression
             const base64Url = canvas.toDataURL('image/jpeg', 0.6); 
             const base64Data = base64Url.split(',')[1];
             
@@ -236,9 +236,8 @@ const App = () => {
       return;
     }
 
-    // Thresholds
     const VIDEO_DIRECT_LIMIT_MB = 20; 
-    const PDF_DIRECT_LIMIT_MB = 10; // If larger, we render to images
+    const PDF_DIRECT_LIMIT_MB = 10; 
 
     setIsAnalyzing(true);
     setProgressStatus("正在準備檔案...");
@@ -248,14 +247,19 @@ const App = () => {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       let contentParts: any[] = [];
+      
+      // FIXED: Variable to store sampling interval for correction
+      let samplingInterval = 0; 
 
       // --- 1. Process Video ---
       const isLargeVideo = videoFile.size > VIDEO_DIRECT_LIMIT_MB * 1024 * 1024;
       if (isLargeVideo) {
         console.log("Large video detected, switching to frame sampling...");
         try {
-          const videoFrames = await extractFrames(videoFile);
-          contentParts = [...contentParts, ...videoFrames];
+          // FIXED: Destructure the object returned by extractFrames
+          const { parts, interval } = await extractFrames(videoFile);
+          contentParts = [...contentParts, ...parts];
+          samplingInterval = interval; 
         } catch (e) {
           console.error(e);
           throw new Error("無法處理大型影片，請嘗試使用較小的檔案。");
@@ -273,7 +277,6 @@ const App = () => {
 
       // --- 2. Process PDF ---
       const isLargePdf = pdfFile.size > PDF_DIRECT_LIMIT_MB * 1024 * 1024;
-      
       if (isLargePdf) {
         console.log("Large PDF detected, switching to page rendering...");
         try {
@@ -309,8 +312,7 @@ const App = () => {
         1. 輸出一個 JSON 事件列表。每個事件代表一個投影片展示的片段。
         2. 包含時間戳記 (MM:SS)、對應的 PDF 頁碼 (整數)、投影片標題(或主要內容摘要)，以及你判斷匹配的理由。
         3. 理由請使用繁體中文撰寫，解釋為何該畫面與該頁匹配（例如：標題相同、圖表一致）。
-        4. 確保列表按照時間順序排列。
-        5. 如果影片一開始就是第一頁，請從 00:00 開始。
+        4. 確保列表按照時間順序排列。        
       `;
 
       contentParts.push({ text: promptText });
@@ -343,7 +345,29 @@ const App = () => {
       });
 
       if (response.text) {
-        const data = JSON.parse(response.text) as SyncEvent[];
+        let data = JSON.parse(response.text) as SyncEvent[];
+
+        // --- 核心修改：中間值校正演算法 ---
+        if (samplingInterval > 0) {
+          console.log(`應用中間值校正: 自動扣除 ${samplingInterval / 2} 秒 (採樣間隔: ${samplingInterval}秒)`);
+          
+          data = data.map(event => {
+            // 自動修正：時間點往前推移半個 Interval
+            const correctedSeconds = Math.max(0, event.seconds - (samplingInterval / 2));
+            
+            const mins = Math.floor(correctedSeconds / 60);
+            const secs = Math.floor(correctedSeconds % 60);
+            const correctedTimestamp = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+            return {
+              ...event,
+              seconds: correctedSeconds,
+              timestamp: correctedTimestamp,
+              reasoning: event.reasoning + ` (已自動校正誤差)`
+            };
+          });
+        }
+        
         setResults(data);
       } else {
         throw new Error("模型未返回任何數據。");
@@ -356,7 +380,7 @@ const App = () => {
       if (msg.includes('413') || msg.includes('too large')) {
          setError("檔案總量過大。請嘗試減少影片長度或壓縮 PDF。");
       } else if (msg.includes('400')) {
-         setError("請求失敗 (400)。請檢查檔案格式或減少檔案大小。");
+         setError("請求失敗 (400)。Context Token 超出上限，請確認圖片壓縮設定已生效。");
       } else {
         setError(msg || "分析過程中發生未預期的錯誤。");
       }
@@ -380,7 +404,7 @@ const App = () => {
         {/* Header */}
         <div className="text-center space-y-2">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-            影片與簡報同步助手
+            影片與簡報同步助手 (High Precision)
           </h1>
           <p className="text-slate-400">
             上傳演講影片與 PDF 講義，AI 將自動為您找出對應的切換時間點。
@@ -473,7 +497,7 @@ const App = () => {
                 {progressStatus || "正在處理..."}
               </p>
               <p className="text-xs text-slate-500 max-w-md mx-auto">
-                注意：大型檔案會自動轉換為圖片格式傳送，請保持視窗開啟。
+                採樣密度：極高 (600張) | 圖片品質：壓縮 (10%) | 自動校正：開啟
               </p>
             </div>
           )}
