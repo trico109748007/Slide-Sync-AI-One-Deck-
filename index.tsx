@@ -70,18 +70,33 @@ const App = () => {
     return new Promise((resolve, reject) => {
       const video = document.createElement('video');
       video.preload = 'metadata';
-      video.src = URL.createObjectURL(file);
       video.muted = true;
       video.playsInline = true;
 
       const parts: any[] = [];
+      let objectUrl: string | null = null;
       
+      const cleanup = () => {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        video.onloadedmetadata = null;
+        video.onseeked = null;
+        video.onerror = null;
+      };
+
       video.onloadedmetadata = async () => {
         const duration = video.duration;
         
+        // CHECK: Ensure duration is finite to prevent "currentTime is non-finite" error
+        if (!Number.isFinite(duration) || duration <= 0) {
+          cleanup();
+          reject(new Error("無法讀取影片長度 (Duration invalid)。請確認影片檔案是否完整。"));
+          return;
+        }
+
         // --- 核心修改：高密度採樣設定 ---
         const targetFrameCount = 800;
-        const interval = Math.max(2, Math.floor(duration / targetFrameCount));
+        let interval = Math.floor(duration / targetFrameCount);
+        if (!Number.isFinite(interval) || interval < 2) interval = 2; // Strict interval validation
         
         setProgressStatus(`正在處理影片... (影片長度: ${Math.floor(duration)}秒, 取樣間隔: ${interval}秒, 預計張數: ${Math.ceil(duration/interval)})`);
 
@@ -89,6 +104,7 @@ const App = () => {
         const ctx = canvas.getContext('2d');
         
         if (!ctx) {
+          cleanup();
           reject(new Error("Canvas context not available"));
           return;
         }
@@ -96,13 +112,25 @@ const App = () => {
         let currentTime = 0;
 
         const processFrame = async () => {
+          // Safety check for recursive calls
+          if (!Number.isFinite(currentTime)) {
+             cleanup();
+             reject(new Error("Internal Error: Calculated time is non-finite"));
+             return;
+          }
+
           if (currentTime >= duration) {
-            URL.revokeObjectURL(video.src);
+            cleanup();
             resolve({ parts, interval });
             return;
           }
 
-          video.currentTime = currentTime;
+          try {
+            video.currentTime = currentTime;
+          } catch (err) {
+            cleanup();
+            reject(new Error(`Failed to seek video to ${currentTime}s: ${err}`));
+          }
         };
 
         video.onseeked = () => {
@@ -134,15 +162,24 @@ const App = () => {
         };
 
         video.onerror = (e) => {
-          reject(new Error("Video processing error"));
+          cleanup();
+          reject(new Error("Video processing error during playback"));
         };
 
         processFrame();
       };
       
       video.onerror = () => {
+        cleanup();
         reject(new Error("Could not load video metadata"));
       };
+
+      try {
+        objectUrl = URL.createObjectURL(file);
+        video.src = objectUrl;
+      } catch (e) {
+        reject(new Error("Failed to create object URL for video file"));
+      }
     });
   };
 
@@ -349,7 +386,11 @@ const App = () => {
           console.log(`應用中間值校正: 自動扣除 ${samplingInterval / 2} 秒 (採樣間隔: ${samplingInterval}秒)`);
           
           data = data.map(event => {
-            const correctedSeconds = Math.max(0, event.seconds - (samplingInterval / 2));
+            // Validate seconds from AI response
+            let s = Number(event.seconds);
+            if (!Number.isFinite(s)) s = 0;
+
+            const correctedSeconds = Math.max(0, s - (samplingInterval / 2));
             const mins = Math.floor(correctedSeconds / 60);
             const secs = Math.floor(correctedSeconds % 60);
             const correctedTimestamp = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -386,7 +427,7 @@ const App = () => {
   };
 
   const jumpToTime = (seconds: number) => {
-    if (videoRef.current) {
+    if (videoRef.current && Number.isFinite(seconds)) {
       videoRef.current.currentTime = seconds;
       videoRef.current.play();
     }
