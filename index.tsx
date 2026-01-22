@@ -354,7 +354,7 @@ const App = () => {
       setProgressStatus("AI 正在分析與同步 (這可能需要一點時間)...");
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: 'gemini-2.5-flash',
         contents: {
           parts: contentParts
         },
