@@ -372,7 +372,7 @@ const App = () => {
                 slideTitle: { type: Type.STRING, description: "Title of the slide" },
                 reasoning: { type: Type.STRING, description: "Reason for matching (Traditional Chinese)" }
               },
-              required: ["timestamp", "pdfPageNumber", "slideTitle", "reasoning"]
+              required: ["timestamp", "seconds", "pdfPageNumber", "slideTitle", "reasoning"]
             }
           }
         }
@@ -386,9 +386,25 @@ const App = () => {
           console.log(`應用中間值校正: 自動扣除 ${samplingInterval / 2} 秒 (採樣間隔: ${samplingInterval}秒)`);
           
           data = data.map(event => {
-            // Validate seconds from AI response
+            // --- 修正後的邏輯 ---
             let s = Number(event.seconds);
-            if (!Number.isFinite(s)) s = 0;
+            
+            // 如果秒數無效 (AI 沒回傳)，嘗試從 timestamp (MM:SS) 解析
+            if (!Number.isFinite(s)) {
+              if (event.timestamp && event.timestamp.includes(':')) {
+                const parts = event.timestamp.split(':');
+                const mins = parseInt(parts[0], 10);
+                const secs = parseInt(parts[1], 10);
+                if (!isNaN(mins) && !isNaN(secs)) {
+                  s = mins * 60 + secs;
+                } else {
+                  s = 0; // 解析失敗才歸零
+                }
+              } else {
+                s = 0; // 真的沒救了才歸零
+              }
+            }
+            // -------------------
 
             const correctedSeconds = Math.max(0, s - (samplingInterval / 2));
             const mins = Math.floor(correctedSeconds / 60);
